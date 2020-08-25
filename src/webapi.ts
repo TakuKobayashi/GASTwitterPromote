@@ -1,6 +1,21 @@
-import { getKeyNumberPairs, updateHeaderValues } from '../common/sheet-data';
+const DEFAULT_KEYS_COLUMN_ROW = 1;
 
-export function doPost(e: any): GoogleAppsScript.Content.TextOutput {
+function doGet(e: any): GoogleAppsScript.Content.TextOutput {
+  const dataKeysColumnNumber: number = e.parameter.keys_column_row || 1;
+  const dataStartRowNumber: number = e.parameter.start_row || 2;
+
+  // e.parameterでURL QueryのObejctが取得できる
+  const targetSpreadSheet = SpreadsheetApp.getActiveSpreadsheet();
+  const resultObject = loadSpreadsheetToObjects(targetSpreadSheet, dataKeysColumnNumber, dataStartRowNumber);
+  const jsonOut = ContentService.createTextOutput();
+  //Mime TypeをJSONに設定
+  jsonOut.setMimeType(ContentService.MimeType.JSON);
+  //JSONテキストをセットする
+  jsonOut.setContent(JSON.stringify(resultObject));
+  return jsonOut;
+}
+
+function doPost(e: any): GoogleAppsScript.Content.TextOutput {
   const dataKeysColumnRow: number = e.parameter.keys_column_row || 1;
   const dataStartRowNumber: number = e.parameter.start_row || 2;
   const primaryKeyName = e.parameter.primary_key;
@@ -89,4 +104,63 @@ export function doPost(e: any): GoogleAppsScript.Content.TextOutput {
   //JSONテキストをセットする
   jsonOut.setContent(JSON.stringify(data));
   return jsonOut;
+}
+
+function loadSpreadsheetToObjects(
+  targetSpreadSheet: GoogleAppsScript.Spreadsheet.Spreadsheet,
+  dataKeysColumnNumber: number = 1,
+  dataStartRowNumber: number = 2,
+): { [s: string]: any } {
+  const resultObject: { [s: string]: any } = {};
+  for (const sheet of targetSpreadSheet.getSheets()) {
+    const resultJsonObjects = [];
+    const dataRange = sheet.getDataRange();
+    const data = dataRange.getValues();
+    for (let row = dataStartRowNumber - 1; row < data.length; ++row) {
+      const sheetData: { [s: string]: any } = {};
+      const keys = data[0];
+      for (let column = dataKeysColumnNumber - 1; column < keys.length; ++column) {
+        sheetData[keys[column]] = data[row][column];
+      }
+      resultJsonObjects.push(sheetData);
+    }
+    resultObject[sheet.getSheetName()] = resultJsonObjects;
+  }
+  return resultObject;
+}
+
+function getKeyNumberPairs(
+  targetSheet: GoogleAppsScript.Spreadsheet.Sheet,
+  headerKeysColumnRow: number = DEFAULT_KEYS_COLUMN_ROW,
+): { [s: string]: number } {
+  const keyNumberPairs: { [s: string]: number } = {};
+  const headerRange = targetSheet.getRange(headerKeysColumnRow, 1, 1, targetSheet.getLastColumn());
+  const headerValues = headerRange.getValues();
+  if (headerValues[0]) {
+    for (let i = 0; i < headerValues[0].length; ++i) {
+      keyNumberPairs[headerValues[0][i]] = i + 1;
+    }
+  }
+  return keyNumberPairs;
+}
+
+function updateHeaderValues(
+  targetSheet: GoogleAppsScript.Spreadsheet.Sheet,
+  keyNumberPairs: { [s: string]: number },
+  headerKeysColumnRow: number = DEFAULT_KEYS_COLUMN_ROW,
+): void {
+  const keyArray = Object.keys(keyNumberPairs);
+  keyArray.sort((a, b) => {
+    if (keyNumberPairs[a] > keyNumberPairs[b]) {
+      return 1;
+    } else if (keyNumberPairs[a] < keyNumberPairs[b]) {
+      return -1;
+    } else {
+      return 0;
+    }
+  });
+  const columnNumbers: number[] = Object.values(keyNumberPairs);
+  const maxColumnNumber = columnNumbers.length > 0 ? Math.max(...columnNumbers) : 1;
+  const headerRange = targetSheet.getRange(headerKeysColumnRow, 1, 1, maxColumnNumber);
+  headerRange.setValues([keyArray]);
 }
